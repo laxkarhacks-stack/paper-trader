@@ -12,6 +12,32 @@ from strategy import moving_average_signal
 from risk import can_trade, position_size
 from config import SYMBOL
 
+def telegram_send(message):
+    try:
+        import os
+        import requests
+
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+        if not token or not chat_id:
+            return False
+
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": message
+            },
+            timeout=10
+        )
+
+        return bool(r.ok)
+
+    except Exception:
+        return False
+
+
 st.set_page_config(
     page_title="Paper Trader",
     page_icon="📈",
@@ -144,6 +170,7 @@ def automatic_engine():
 
         if message.startswith("🟢") or message.startswith("🔴"):
             st.success(message)
+            telegram_send(message)
         elif message.startswith("🛑"):
             st.error(message)
         else:
