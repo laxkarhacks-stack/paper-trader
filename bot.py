@@ -8,6 +8,7 @@ from paper_engine import load_state, open_trade, close_trade
 from strategy import moving_average_signal
 from risk import can_trade, position_size
 from config import SYMBOL, POLL_SECONDS
+from telegram import send_message
 
 HISTORY_FILE = "price_history.json"
 MAX_HISTORY = 100
@@ -121,20 +122,30 @@ def main():
                         )
 
                         if ok:
-                            print(
-                                f"🟢 PAPER BUY @ ₹{price:.2f} "
-                                f"| Qty: {qty}"
+                            msg = (
+                                f"🟢 PAPER BUY\n"
+                                f"Symbol: {SYMBOL}\n"
+                                f"Entry: ₹{price:.2f}\n"
+                                f"Qty: {qty}\n"
+                                f"Signal: BUY"
                             )
+                            print(msg)
+                            send_message(msg)
 
             elif trade is not None and signal == "SELL":
                 ok, result = close_trade(price)
 
                 if ok:
-                    print(
-                        f"🔴 PAPER SELL @ ₹{price:.2f} "
-                        f"| Qty: {result['qty']} "
-                        f"| P&L ₹{result['pnl']:.2f}"
+                    msg = (
+                        f"🔴 PAPER SELL\n"
+                        f"Symbol: {SYMBOL}\n"
+                        f"Exit: ₹{price:.2f}\n"
+                        f"Qty: {result['qty']}\n"
+                        f"P&L: ₹{result['pnl']:.2f}\n"
+                        f"Signal: SELL"
                     )
+                    print(msg)
+                    send_message(msg)
 
             time.sleep(POLL_SECONDS)
 
