@@ -1,341 +1,190 @@
-import json
-from pathlib import Path
-from datetime import datetime
-import time
-from datetime import timezone, timedelta
-
 import streamlit as st
+import pandas as pd
+from datetime import datetime, timezone, timedelta
 
-from market import get_price
-from paper_engine import load_state, save_state, open_trade, close_trade
-from strategy import moving_average_signal
-from risk import can_trade, position_size
-from config import SYMBOL
-
-def telegram_send(message):
-    try:
-        import os
-        import requests
-
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
-
-        if not token or not chat_id:
-            return False
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": message
-            },
-            timeout=10
-        )
-
-        return bool(r.ok)
-
-    except Exception:
-        return False
-
-
-st.set_page_config(
-    page_title="Paper Trader",
-    page_icon="📈",
-    layout="wide",
-)
+from config import SYMBOLS, POLL_SECONDS
+from engine import run_cycle, market_open
+from paper_engine import load_state, reset_account
 
 IST = timezone(timedelta(hours=5, minutes=30))
-HISTORY_FILE = Path(__file__).parent / "price_history.json"
-MAX_HISTORY = 100
 
+st.set_page_config(
+    page_title="Bank Nifty Paper Trader",
+    page_icon="📈",
+    layout="wide"
+)
 
-def load_history():
-    try:
-        data = json.loads(HISTORY_FILE.read_text())
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def save_history(history):
-    HISTORY_FILE.write_text(
-        json.dumps(history[-MAX_HISTORY:], indent=2)
-    )
-
-
-def market_open():
-    now = datetime.now(IST)
-
-    if now.weekday() >= 5:
-        return False
-
-    current = now.hour * 60 + now.minute
-    return 555 <= current <= 930
-
-
-def run_cycle():
-    state = load_state()
-
-    if state.get("status") == "paused":
-        return "⏸️ Engine paused", None, state
-
-    if not market_open():
-        return "🌙 NSE market closed", None, state
-
-    quote = get_price(SYMBOL)
-
-    if quote.get("stale") is True:
-        return "🛑 Stale NSE data — NO TRADE", quote, state
-
-    prices = load_history()
-
-    timestamp = quote.get("timestamp")
-
-    if timestamp and prices:
-        last = prices[-1]
-        last_timestamp = (
-            last.get("timestamp")
-            if isinstance(last, dict)
-            else None
-        )
-
-        if timestamp == last_timestamp:
-            return "⏸️ No new market tick", quote, state
-
-    prices.append({
-        "price": quote["price"],
-        "timestamp": timestamp,
-    })
-    save_history(prices)
-
-    numeric_prices = [
-        float(x["price"]) if isinstance(x, dict) else float(x)
-        for x in prices
-    ]
-
-    signal = moving_average_signal(numeric_prices)
-    trade = state.get("open_trade")
-
-    if trade is None and signal == "BUY":
-        if can_trade(
-            state["capital"],
-            state["daily_pnl"],
-        ):
-            qty = position_size(
-                state["capital"],
-                quote["price"],
-            )
-
-            if qty > 0:
-                ok, result = open_trade(
-                    quote["price"],
-                    "BUY",
-                    qty,
-                )
-
-                if ok:
-                    return (
-                        f"🟢 PAPER BUY @ ₹{quote['price']:.2f} "
-                        f"| Qty {qty}",
-                        quote,
-                        load_state(),
-                    )
-
-    elif trade is not None and signal == "SELL":
-        ok, result = close_trade(quote["price"])
-
-        if ok:
-            return (
-                f"🔴 PAPER SELL @ ₹{quote['price']:.2f} "
-                f"| P&L ₹{result['pnl']:.2f}",
-                quote,
-                load_state(),
-            )
-
-    return (
-        f"✅ Cycle complete • Signal: {signal}",
-        quote,
-        load_state(),
-    )
-
-
-
-@st.fragment(run_every="60s")
-def automatic_engine():
-    if not st.session_state.get("auto_engine", False):
-        return
-
-    try:
-        message, quote, state = run_cycle()
-
-        if message.startswith("🟢") or message.startswith("🔴"):
-            st.success(message)
-            telegram_send(message)
-        elif message.startswith("🛑"):
-            st.error(message)
-        else:
-            st.caption(f"⚡ Auto: {message}")
-
-    except Exception as e:
-        st.error(f"Auto cycle error: {e}")
-
-
-if "auto_engine" not in st.session_state:
-    st.session_state.auto_engine = False
-
-auto_col1, auto_col2 = st.columns(2)
-
-with auto_col1:
-    st.session_state.auto_engine = st.toggle(
-        "🤖 Auto Engine",
-        value=st.session_state.auto_engine
-    )
-
-with auto_col2:
-    if st.session_state.auto_engine:
-        st.caption("🟢 Automatic cycle: every 60 seconds")
-    else:
-        st.caption("⏸️ Automatic engine disabled")
-
-automatic_engine()
-
-st.title("📈 Paper Trader")
-st.caption("NSE • PAPER MODE • Streamlit Python Backend")
+st.title("📈 Bank Nifty Paper Trader")
 
 state = load_state()
 
-# Controls
+# -------------------------
+# Account
+# -------------------------
 c1, c2, c3, c4 = st.columns(4)
 
-with c1:
-    if st.button("⚡ Run One Cycle", use_container_width=True):
-        try:
-            message, quote, state = run_cycle()
-
-            if message.startswith("🟢") or message.startswith("🔴"):
-                st.success(message)
-            elif message.startswith("🛑"):
-                st.error(message)
-            else:
-                st.info(message)
-
-            st.rerun()
-        except Exception as e:
-            st.error(f"Cycle error: {e}")
-
-with c2:
-    if st.button("🔄 Refresh", use_container_width=True):
-        st.rerun()
-
-with c3:
-    if state.get("status") == "running":
-        if st.button("⏸️ Pause", use_container_width=True):
-            state["status"] = "paused"
-            save_state(state)
-            st.rerun()
-    else:
-        if st.button("▶️ Resume", use_container_width=True):
-            state["status"] = "running"
-            save_state(state)
-            st.rerun()
-
-with c4:
-    st.metric("Engine", state.get("status", "running").upper())
+c1.metric("Capital", f"₹{state['capital']:,.2f}")
+c2.metric("Available", f"₹{state['available']:,.2f}")
+c3.metric("Daily P&L", f"₹{state['daily_pnl']:,.2f}")
+c4.metric("Open Positions", len(state["open_trades"]))
 
 st.divider()
 
-# Market
-try:
-    quote = get_price(SYMBOL)
+# -------------------------
+# Controls
+# -------------------------
+col1, col2, col3 = st.columns(3)
 
-    prices = load_history()
+if col1.button("▶️ Run One Scan", use_container_width=True):
+    result = run_cycle()
+    st.session_state["last_result"] = result
+    st.rerun()
 
-    numeric_prices = [
-        float(x["price"]) if isinstance(x, dict) else float(x)
-        for x in prices
-    ]
+if col2.button("🔄 Refresh", use_container_width=True):
+    st.rerun()
 
-    signal = moving_average_signal(numeric_prices)
+if col3.button("♻️ Reset ₹2L Account", use_container_width=True):
+    reset_account()
+    st.session_state.pop("last_result", None)
+    st.success("Account reset to ₹2,00,000")
+    st.rerun()
 
-    a, b, c, d = st.columns(4)
+st.caption(
+    f"Market: {'🟢 OPEN' if market_open() else '🔴 CLOSED'}  |  "
+    f"IST: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}"
+)
 
-    a.metric("Symbol", quote["symbol"])
+# -------------------------
+# Auto Engine
+# -------------------------
+auto = st.toggle(
+    "🤖 Auto Engine",
+    value=st.session_state.get("auto_engine", False)
+)
 
-    b.metric(
-        "Price",
-        f"₹{quote['price']:,.2f}",
+st.session_state["auto_engine"] = auto
+
+if auto:
+    st.info(
+        f"Auto Engine enabled — scanner runs every {POLL_SECONDS} seconds "
+        "while this Streamlit session remains active."
     )
 
-    c.metric(
-        "Change",
-        f"{quote['change_percent']:+.2f}%",
-    )
+    @st.fragment(run_every=f"{POLL_SECONDS}s")
+    def automatic_engine():
+        result = run_cycle()
+        st.session_state["last_result"] = result
 
-    d.metric("Signal", signal)
+        if result.get("message"):
+            st.write(result["message"])
 
-    if quote.get("stale"):
-        st.warning("⚠️ Cached/stale NSE quote — trading blocked")
+        if result.get("events"):
+            for event in result["events"]:
+                st.success(event)
 
-    st.caption(
-        f"Market data: {quote.get('timestamp', 'N/A')}"
-    )
+    automatic_engine()
 
-except Exception as e:
-    st.error(f"NSE market data error: {e}")
+# -------------------------
+# Last scan
+# -------------------------
+result = st.session_state.get("last_result")
 
-st.divider()
+if result:
+    st.subheader("🔎 12-Stock Scanner")
 
-# Account
-st.subheader("💰 Account")
+    rows = []
 
-a, b, c, d = st.columns(4)
+    for stock in result.get("stocks", []):
+        rows.append({
+            "Symbol": stock.get("symbol"),
+            "Price": stock.get("price"),
+            "Change %": stock.get("change_percent"),
+            "Signal": stock.get("signal"),
+            "Ticks": stock.get("ticks", 0),
+            "Status": stock.get("status"),
+        })
 
-a.metric(
-    "Capital",
-    f"₹{state.get('capital', 0):,.2f}",
-)
+    if rows:
+        df = pd.DataFrame(rows)
 
-a2 = b.metric(
-    "Available",
-    f"₹{state.get('available', 0):,.2f}",
-)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
 
-c.metric(
-    "Today's P&L",
-    f"₹{state.get('daily_pnl', 0):,.2f}",
-)
+    if result.get("events"):
+        st.subheader("⚡ Engine Events")
 
-d.metric(
-    "Trades",
-    len(state.get("trades", [])),
-)
+        for event in result["events"]:
+            st.code(event)
 
-st.divider()
+# -------------------------
+# Open Positions
+# -------------------------
+st.subheader("📌 Open Positions")
 
-# Open trade
-st.subheader("📌 Open Trade")
+state = load_state()
 
-if state.get("open_trade"):
-    st.json(state["open_trade"])
-else:
-    st.info("No open trade")
+if state["open_trades"]:
+    rows = []
 
-# Trades
-st.subheader("📊 Recent Trades")
+    for symbol, trade in state["open_trades"].items():
+        rows.append({
+            "Symbol": symbol,
+            "Entry": trade["entry"],
+            "Qty": trade["qty"],
+            "Value": trade["value"],
+            "Stop Loss": trade["stop_loss"],
+            "Take Profit": trade["take_profit"],
+            "Time": trade["time"],
+        })
 
-trades = state.get("trades", [])
-
-if trades:
     st.dataframe(
-        trades[-20:],
+        pd.DataFrame(rows),
         use_container_width=True,
-        hide_index=True,
+        hide_index=True
+    )
+else:
+    st.info("No open paper positions.")
+
+# -------------------------
+# Trade History
+# -------------------------
+st.subheader("📜 Trade History")
+
+if state["trades"]:
+    rows = []
+
+    for trade in reversed(state["trades"][-50:]):
+        rows.append({
+            "Symbol": trade.get("symbol"),
+            "Entry": trade.get("entry"),
+            "Exit": trade.get("exit"),
+            "Qty": trade.get("qty"),
+            "P&L": trade.get("pnl"),
+            "Reason": trade.get("exit_reason"),
+            "Entry Time": trade.get("time"),
+            "Exit Time": trade.get("exit_time"),
+        })
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True
     )
 else:
     st.info("No completed trades yet.")
 
+# -------------------------
+# Watchlist
+# -------------------------
+with st.expander("🏦 Bank Nifty Universe"):
+    st.write(", ".join(SYMBOLS))
+
 st.divider()
 
 st.caption(
-    "Paper trading only • No real orders are placed."
+    "Paper trading only • No real orders • NSE market data • "
+    "Strategy: 3-period MA vs 5-period MA"
 )
