@@ -8,10 +8,7 @@ from reports import daily_report
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-if not TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
-
-API = f"https://api.telegram.org/bot{TOKEN}"
+API = f"https://api.telegram.org/bot{TOKEN}" if TOKEN else None
 
 
 def send_message(text):
