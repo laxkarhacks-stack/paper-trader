@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 import time
-from zoneinfo import ZoneInfo
+from datetime import timezone, timedelta
 
 import streamlit as st
 
@@ -44,7 +44,7 @@ st.set_page_config(
     layout="wide",
 )
 
-IST = ZoneInfo("Asia/Kolkata")
+IST = timezone(timedelta(hours=5, minutes=30))
 HISTORY_FILE = Path(__file__).parent / "price_history.json"
 MAX_HISTORY = 100
 

@@ -1,7 +1,7 @@
 import json
 import time
 from datetime import datetime, time as dt_time
-from zoneinfo import ZoneInfo
+from datetime import timezone, timedelta
 
 from market import get_price
 from paper_engine import load_state, open_trade, close_trade
@@ -12,7 +12,7 @@ from telegram import send_message
 
 HISTORY_FILE = "price_history.json"
 MAX_HISTORY = 100
-IST = ZoneInfo("Asia/Kolkata")
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def load_history():
