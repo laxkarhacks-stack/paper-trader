@@ -5,6 +5,19 @@ from datetime import datetime
 STATE_FILE = Path(__file__).parent / "state.json"
 
 def load_state():
+    if not STATE_FILE.exists():
+        state = {
+            "capital": 10000,
+            "available": 10000,
+            "daily_pnl": 0,
+            "daily_date": datetime.now().strftime("%Y-%m-%d"),
+            "trades": [],
+            "open_trade": None,
+            "status": "running"
+        }
+        save_state(state)
+        return state
+
     state = json.loads(STATE_FILE.read_text())
 
     today = datetime.now().strftime("%Y-%m-%d")
