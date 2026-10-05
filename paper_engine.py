@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from datetime import datetime
-
 from config import STARTING_CAPITAL, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT
 
 STATE_FILE = Path(__file__).parent / "state.json"
@@ -14,7 +13,7 @@ def default_state():
         "daily_pnl": 0,
         "daily_date": datetime.now().strftime("%Y-%m-%d"),
         "trades": [],
-        "open_trade": None,
+        "open_trades": {},
         "status": "running",
     }
 
@@ -31,20 +30,31 @@ def load_state():
 
     state = json.loads(STATE_FILE.read_text())
 
+    # Old single-position format migration
+    if "open_trades" not in state:
+        old = state.get("open_trade")
+        state["open_trades"] = {}
+
+        if old:
+            symbol = old.get("symbol", "RELIANCE")
+            state["open_trades"][symbol] = old
+
+        state.pop("open_trade", None)
+
     today = datetime.now().strftime("%Y-%m-%d")
 
     if state.get("daily_date") != today:
         state["daily_date"] = today
         state["daily_pnl"] = 0
-        save_state(state)
 
+    save_state(state)
     return state
 
 
-def open_trade(price, side="BUY", qty=1):
+def open_trade(symbol, price, qty, side="BUY"):
     state = load_state()
 
-    if state["open_trade"] is not None:
+    if symbol in state["open_trades"]:
         return False, "Trade already open"
 
     price = float(price)
@@ -59,32 +69,26 @@ def open_trade(price, side="BUY", qty=1):
         return False, "Insufficient available capital"
 
     trade = {
+        "symbol": symbol,
         "side": side,
         "entry": price,
         "qty": qty,
         "value": cost,
-        "stop_loss": round(
-            price * (1 - STOP_LOSS_PERCENT), 2
-        ),
-        "take_profit": round(
-            price * (1 + TAKE_PROFIT_PERCENT), 2
-        ),
+        "stop_loss": round(price * (1 - STOP_LOSS_PERCENT), 2),
+        "take_profit": round(price * (1 + TAKE_PROFIT_PERCENT), 2),
         "time": datetime.now().isoformat(),
     }
 
-    state["available"] = round(
-        state["available"] - cost, 2
-    )
+    state["available"] = round(state["available"] - cost, 2)
+    state["open_trades"][symbol] = trade
 
-    state["open_trade"] = trade
     save_state(state)
-
     return True, trade
 
 
-def close_trade(price, reason="SIGNAL"):
+def close_trade(symbol, price, reason="SIGNAL"):
     state = load_state()
-    trade = state["open_trade"]
+    trade = state["open_trades"].get(symbol)
 
     if trade is None:
         return False, "No open trade"
@@ -105,19 +109,27 @@ def close_trade(price, reason="SIGNAL"):
     trade["exit_reason"] = reason
     trade["exit_time"] = datetime.now().isoformat()
 
-    state["capital"] = round(
-        state["capital"] + pnl, 2
+    state["capital"] = round(state["capital"] + pnl, 2)
+
+    # Return original position value + P&L to available cash
+    state["available"] = round(
+        state["available"] + trade["value"] + pnl,
+        2
     )
 
-    state["available"] = state["capital"]
-
     state["daily_pnl"] = round(
-        state["daily_pnl"] + pnl, 2
+        state["daily_pnl"] + pnl,
+        2
     )
 
     state["trades"].append(trade)
-    state["open_trade"] = None
+    del state["open_trades"][symbol]
 
     save_state(state)
-
     return True, trade
+
+
+def reset_account():
+    state = default_state()
+    save_state(state)
+    return state
