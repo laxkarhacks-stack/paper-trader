@@ -18,10 +18,21 @@ def can_trade(capital, daily_pnl):
 
 
 def position_size(capital, price):
-    if price <= 0:
+    if capital <= 0 or price <= 0:
         return 0
 
     risk_amount = capital * MAX_RISK_PER_TRADE
-    qty = int(risk_amount / price)
 
-    return max(1, qty)
+    # Paper engine currently has no stop-loss distance,
+    # so cap position by available capital instead of
+    # pretending risk_amount is a true stop-loss risk.
+    qty_by_capital = int(capital / price)
+
+    if qty_by_capital <= 0:
+        return 0
+
+    # Never use more than 20% of capital in one position.
+    max_position_value = capital * 0.20
+    qty = int(max_position_value / price)
+
+    return max(1, min(qty, qty_by_capital))

@@ -2,7 +2,7 @@ import os
 import time
 import requests
 
-from paper_engine import load_state, save_state, save_state
+from paper_engine import load_state, save_state
 from reports import daily_report
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
