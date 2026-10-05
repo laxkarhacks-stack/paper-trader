@@ -134,7 +134,25 @@ def run_cycle():
 
 
 
-# Automatic paper-trading cycle
+@st.fragment(run_every="60s")
+def automatic_engine():
+    if not st.session_state.get("auto_engine", False):
+        return
+
+    try:
+        message, quote, state = run_cycle()
+
+        if message.startswith("🟢") or message.startswith("🔴"):
+            st.success(message)
+        elif message.startswith("🛑"):
+            st.error(message)
+        else:
+            st.caption(f"⚡ Auto: {message}")
+
+    except Exception as e:
+        st.error(f"Auto cycle error: {e}")
+
+
 if "auto_engine" not in st.session_state:
     st.session_state.auto_engine = False
 
@@ -147,22 +165,12 @@ with auto_col1:
     )
 
 with auto_col2:
-    st.caption("Runs one fresh NSE cycle every 60 seconds while this Streamlit session is active.")
+    if st.session_state.auto_engine:
+        st.caption("🟢 Automatic cycle: every 60 seconds")
+    else:
+        st.caption("⏸️ Automatic engine disabled")
 
-if st.session_state.auto_engine:
-    try:
-        message, quote, state = run_cycle()
-        if message.startswith("🟢") or message.startswith("🔴"):
-            st.success(message)
-        elif message.startswith("🛑"):
-            st.error(message)
-        else:
-            st.info(message)
-    except Exception as e:
-        st.error(f"Auto cycle error: {e}")
-
-    time.sleep(60)
-    st.rerun()
+automatic_engine()
 
 st.title("📈 Paper Trader")
 st.caption("NSE • PAPER MODE • Streamlit Python Backend")
