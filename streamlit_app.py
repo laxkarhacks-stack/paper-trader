@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
+import time
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -131,6 +132,37 @@ def run_cycle():
         load_state(),
     )
 
+
+
+# Automatic paper-trading cycle
+if "auto_engine" not in st.session_state:
+    st.session_state.auto_engine = False
+
+auto_col1, auto_col2 = st.columns(2)
+
+with auto_col1:
+    st.session_state.auto_engine = st.toggle(
+        "🤖 Auto Engine",
+        value=st.session_state.auto_engine
+    )
+
+with auto_col2:
+    st.caption("Runs one fresh NSE cycle every 60 seconds while this Streamlit session is active.")
+
+if st.session_state.auto_engine:
+    try:
+        message, quote, state = run_cycle()
+        if message.startswith("🟢") or message.startswith("🔴"):
+            st.success(message)
+        elif message.startswith("🛑"):
+            st.error(message)
+        else:
+            st.info(message)
+    except Exception as e:
+        st.error(f"Auto cycle error: {e}")
+
+    time.sleep(60)
+    st.rerun()
 
 st.title("📈 Paper Trader")
 st.caption("NSE • PAPER MODE • Streamlit Python Backend")
