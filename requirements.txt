@@ -2,6 +2,4 @@ requests
 python-telegram-bot
 
 streamlit
-gunicorn
 
-gunicorn

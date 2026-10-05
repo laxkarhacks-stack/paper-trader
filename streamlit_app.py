@@ -1,124 +1,110 @@
-import os
-import requests
 import streamlit as st
+from market import get_price
+from paper_engine import load_state, save_state
+from strategy import moving_average_signal
 
-st.set_page_config(
-    page_title="Paper Trader",
-    page_icon="📈",
-    layout="wide",
-)
+st.set_page_config(page_title="Paper Trader", page_icon="📈", layout="wide")
 
 st.title("📈 Paper Trader")
-st.caption("NSE • PAPER MODE")
+st.caption("NSE • PAPER MODE • Streamlit Python Backend")
 
-API_URL = st.text_input(
-    "Backend API URL",
-    value=os.getenv("TRADING_API_URL", "http://127.0.0.1:8000"),
-)
+state = load_state()
 
-TOKEN = st.text_input(
-    "API Token",
-    value=os.getenv("TRADING_API_TOKEN", ""),
-    type="password",
-)
+# Controls
+c1, c2, c3 = st.columns(3)
 
-headers = {
-    "Authorization": f"Bearer {TOKEN}"
-}
+with c1:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.rerun()
 
+with c2:
+    if state.get("status") == "running":
+        if st.button("⏸️ Pause", use_container_width=True):
+            state["status"] = "paused"
+            save_state(state)
+            st.rerun()
+    else:
+        if st.button("▶️ Resume", use_container_width=True):
+            state["status"] = "running"
+            save_state(state)
+            st.rerun()
 
-def api_get(path):
-    r = requests.get(
-        f"{API_URL.rstrip('/')}{path}",
-        headers=headers,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
+with c3:
+    st.metric("Engine", state.get("status", "running").upper())
 
+st.divider()
 
-def api_post(path):
-    r = requests.post(
-        f"{API_URL.rstrip('/')}{path}",
-        headers=headers,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
-
-
-if st.button("🔄 Refresh"):
-    st.rerun()
-
+# Market
 try:
-    status = api_get("/status")
-    quote = api_get("/quote")
+    quote = get_price("RELIANCE")
 
-    capital = status.get("capital", 0)
-    available = status.get("available", 0)
-    daily_pnl = status.get("daily_pnl", 0)
-    trades = status.get("trades", [])
-    open_trade = status.get("open_trade")
-    engine_status = status.get("status", "unknown")
+    prices = []
+    try:
+        import json
+        from pathlib import Path
 
-    st.success("🟢 Backend Connected")
+        history_file = Path(__file__).parent / "price_history.json"
 
-    c1, c2, c3, c4 = st.columns(4)
+        if history_file.exists():
+            data = json.loads(history_file.read_text())
+            if isinstance(data, list):
+                prices = [
+                    float(x["price"]) if isinstance(x, dict) else float(x)
+                    for x in data
+                ]
+    except Exception:
+        prices = []
 
-    c1.metric("Capital", f"₹{capital:,.2f}")
-    c2.metric("Available", f"₹{available:,.2f}")
-    c3.metric("Today's P&L", f"₹{daily_pnl:,.2f}")
-    c4.metric("Total Trades", len(trades))
+    signal = moving_average_signal(prices)
 
-    st.divider()
+    a, b, c, d = st.columns(4)
 
-    q1, q2, q3, q4 = st.columns(4)
+    a.metric("Symbol", quote["symbol"])
+    b.metric("Price", f"₹{quote['price']:,.2f}")
+    c.metric("Change", f"{quote['change_percent']:+.2f}%")
+    d.metric("Signal", signal)
 
-    q1.metric("Symbol", quote.get("symbol", "-"))
-    q2.metric("Price", f"₹{quote.get('price', 0):,.2f}")
-    q3.metric("Change", f"{quote.get('change_percent', 0):+.2f}%")
-    q4.metric("Engine", engine_status.upper())
-
-    st.divider()
-
-    st.subheader("⚙️ Controls")
-
-    b1, b2 = st.columns(2)
-
-    with b1:
-        if st.button("⏸️ Pause Trading", use_container_width=True):
-            result = api_post("/pause")
-            st.success(result.get("status", "paused"))
-            st.rerun()
-
-    with b2:
-        if st.button("▶️ Resume Trading", use_container_width=True):
-            result = api_post("/resume")
-            st.success(result.get("status", "running"))
-            st.rerun()
-
-    st.divider()
-
-    st.subheader("📌 Open Trade")
-
-    if open_trade:
-        st.json(open_trade)
-    else:
-        st.info("No open trade")
-
-    st.subheader("📊 Recent Trades")
-
-    if trades:
-        st.dataframe(
-            trades[-20:],
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info("No completed paper trades yet.")
+    st.caption(f"Market data: {quote.get('timestamp', 'N/A')}")
 
 except Exception as e:
-    st.error(f"Backend connection failed: {e}")
-    st.info(
-        "Check API URL, API token, and make sure api.py is running."
+    st.error(f"NSE market data error: {e}")
+
+st.divider()
+
+# Account
+st.subheader("💰 Account")
+
+a, b, c, d = st.columns(4)
+
+a.metric("Capital", f"₹{state.get('capital', 0):,.2f}")
+b.metric("Available", f"₹{state.get('available', 0):,.2f}")
+c.metric("Today's P&L", f"₹{state.get('daily_pnl', 0):,.2f}")
+d.metric("Trades", len(state.get("trades", [])))
+
+st.divider()
+
+# Open trade
+st.subheader("📌 Open Trade")
+
+if state.get("open_trade"):
+    st.json(state["open_trade"])
+else:
+    st.info("No open trade")
+
+# Trades
+st.subheader("📊 Recent Trades")
+
+trades = state.get("trades", [])
+
+if trades:
+    st.dataframe(
+        trades[-20:],
+        use_container_width=True,
+        hide_index=True,
     )
+else:
+    st.info("No completed trades yet.")
+
+st.divider()
+
+st.caption("Paper trading only • No real orders are placed.")
