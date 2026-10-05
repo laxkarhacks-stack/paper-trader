@@ -174,32 +174,35 @@ def run_cycle():
                 "error": str(e),
             })
 
-    # Select strongest BUY only.
-    if buy_candidates and len(state["open_trades"]) < MAX_OPEN_POSITIONS:
-        best = max(
+    # Open every valid BUY candidate up to MAX_OPEN_POSITIONS.
+    slots = MAX_OPEN_POSITIONS - len(state["open_trades"])
+
+    if buy_candidates and slots > 0:
+        for candidate in sorted(
             buy_candidates,
-            key=lambda x: x["strength"]
-        )
+            key=lambda x: x["strength"],
+            reverse=True
+        )[:slots]:
 
-        ok, trade = open_trade(
-            best["symbol"],
-            best["price"],
-            best["qty"],
-            "BUY"
-        )
-
-        if ok:
-            msg = (
-                f"🟢 PAPER BUY\n"
-                f"Symbol: {best['symbol']}\n"
-                f"Entry: ₹{best['price']:.2f}\n"
-                f"Qty: {best['qty']}\n"
-                f"Signal: BUY\n"
-                f"Strength: {best['strength'] * 100:.3f}%"
+            ok, trade = open_trade(
+                candidate["symbol"],
+                candidate["price"],
+                candidate["qty"],
+                "BUY"
             )
 
-            send_message(msg)
-            result["events"].append(msg)
+            if ok:
+                msg = (
+                    f"🟢 PAPER BUY\n"
+                    f"Symbol: {candidate['symbol']}\n"
+                    f"Entry: ₹{candidate['price']:.2f}\n"
+                    f"Qty: {candidate['qty']}\n"
+                    f"Signal: BUY\n"
+                    f"Strength: {candidate['strength'] * 100:.3f}%"
+                )
+
+                send_message(msg)
+                result["events"].append(msg)
 
     result["state"] = load_state()
     return result
