@@ -4,17 +4,26 @@ from datetime import datetime
 
 STATE_FILE = Path(__file__).parent / "state.json"
 
+
+def default_state():
+    return {
+        "capital": 10000,
+        "available": 10000,
+        "daily_pnl": 0,
+        "daily_date": datetime.now().strftime("%Y-%m-%d"),
+        "trades": [],
+        "open_trade": None,
+        "status": "running",
+    }
+
+
+def save_state(state):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
 def load_state():
     if not STATE_FILE.exists():
-        state = {
-            "capital": 10000,
-            "available": 10000,
-            "daily_pnl": 0,
-            "daily_date": datetime.now().strftime("%Y-%m-%d"),
-            "trades": [],
-            "open_trade": None,
-            "status": "running"
-        }
+        state = default_state()
         save_state(state)
         return state
 
@@ -29,11 +38,10 @@ def load_state():
 
     return state
 
-def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2))
 
 def open_trade(price, side="BUY", qty=1):
     state = load_state()
+
     if state["open_trade"] is not None:
         return False, "Trade already open"
 
@@ -41,11 +49,14 @@ def open_trade(price, side="BUY", qty=1):
         "side": side,
         "entry": price,
         "qty": qty,
-        "time": datetime.now().isoformat()
+        "time": datetime.now().isoformat(),
     }
+
     state["open_trade"] = trade
     save_state(state)
+
     return True, trade
+
 
 def close_trade(price):
     state = load_state()
@@ -70,4 +81,5 @@ def close_trade(price):
     state["open_trade"] = None
 
     save_state(state)
+
     return True, trade
